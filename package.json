@@ -17,7 +17,8 @@
     "react-dom": "19.2.3",
     "react-globe.gl": "^2.37.0",
     "resium": "^1.19.4",
-    "satellite.js": "^6.0.2"
+    "satellite.js": "^6.0.2",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@types/d3": "^7.4.3",

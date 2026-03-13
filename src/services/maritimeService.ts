@@ -1,38 +1,40 @@
-// Maritime vessel tracking — REAL-TIME free AIS data
-// Uses Digitraffic Marine API (Finnish Transport Infrastructure Agency) — completely free, no registration
-// Endpoint: https://meri.digitraffic.fi/api/ais/v1/locations
-// Also provides vessel metadata: https://meri.digitraffic.fi/api/ais/v1/vessels
+// Maritime vessel tracking — REAL-TIME global AIS data via AISStream.io WebSocket
+import { Vessel } from '@/types';
 
-import { Vessel, GeoPosition } from '@/types';
-import { SHIPPING_LANES, MILITARY_HOTSPOTS } from '@/utils/geo';
-import { proxyFetch } from '@/utils/proxyFetch';
+const AISSTREAM_URL = 'wss://stream.aisstream.io/v0/stream';
+const API_KEY = '9ee4e4e665f7b4c56c245dfff6601c767d7edebb';
 
-// ─── Digitraffic Marine API (Free, no key, real AIS data) ───
-const DIGITRAFFIC_LOCATIONS = 'https://meri.digitraffic.fi/api/ais/v1/locations';
+let ws: WebSocket | null = null;
+const vesselCache = new Map<string, Vessel>();
 
-interface DigitrafficVessel {
-  mmsi: number;
-  type: number;
-  geometry: {
-    coordinates: [number, number]; // [lng, lat]
+// AISStream messages format mapping
+interface AISStreamMessage {
+  MessageType: string;
+  MetaData: {
+    MMSI: number;
+    ShipName: string;
+    latitude: number;
+    longitude: number;
+    time_utc: string;
   };
-  properties: {
-    mmsi: number;
-    sog: number; // speed over ground (knots * 10)
-    cog: number; // course over ground (degrees * 10)
-    heading: number;
-    navStat: number;
-    name?: string;
-    destination?: string;
-    callSign?: string;
-    shipType?: number;
-    country?: string;
-    timestampExternal: number;
+  Message: {
+    PositionReport?: {
+      Cog: number;
+      Sog: number;
+      Latitude: number;
+      Longitude: number;
+      TrueHeading: number;
+    };
+    ShipStaticData?: {
+      Name: string;
+      Type: number;
+      CallSign: string;
+      Destination: string;
+    };
   };
 }
 
 function classifyShipType(typeCode: number): Vessel['type'] {
-  // AIS ship type codes: https://coast.noaa.gov/data/marinecadastre/ais/VesselTypeCodes2018.pdf
   if (typeCode >= 70 && typeCode <= 79) return 'cargo';
   if (typeCode >= 80 && typeCode <= 89) return 'tanker';
   if (typeCode >= 60 && typeCode <= 69) return 'passenger';
@@ -41,42 +43,93 @@ function classifyShipType(typeCode: number): Vessel['type'] {
   return 'unknown';
 }
 
-async function fetchDigitrafficAIS(): Promise<Vessel[]> {
+function initWebSocket() {
+  if (typeof window === 'undefined') return;
+
   try {
-    const res = await proxyFetch(DIGITRAFFIC_LOCATIONS);
-    if (!res.ok) return [];
+    ws = new WebSocket(AISSTREAM_URL);
 
-    const data = await res.json();
-    const features = data?.features || [];
+    ws.onopen = () => {
+      console.log('AISStream WebSocket connected');
+      ws?.send(JSON.stringify({
+        Apikey: API_KEY,
+        BoundingBoxes: [[[-90, -180], [90, 180]]], // Global
+        FilterMessageTypes: ['PositionReport', 'ShipStaticData']
+      }));
+    };
 
-    return features.slice(0, 300).map((f: DigitrafficVessel, i: number): Vessel => {
-      const props = f.properties;
-      const coords = f.geometry?.coordinates || [0, 0];
+    ws.onmessage = (event) => {
+      try {
+        const data: AISStreamMessage = JSON.parse(event.data);
+        const mmsi = String(data.MetaData.MMSI);
 
-      return {
-        mmsi: String(props.mmsi),
-        name: props.name || `VESSEL-${props.mmsi}`,
-        type: classifyShipType(props.shipType || f.type || 0),
-        flag: props.country || 'FI',
-        position: { lat: coords[1], lng: coords[0] },
-        speed: (props.sog || 0) / 10,
-        heading: (props.cog || 0) / 10,
-        destination: props.destination || 'Unknown',
-        ais_active: true,
-        dark_ship: false,
-        last_update: (props.timestampExternal || Date.now()) / 1000,
-        trail: [],
-      };
-    });
+        // Get existing vessel or create new
+        let vessel = vesselCache.get(mmsi) || {
+          mmsi,
+          name: data.MetaData.ShipName?.trim() || `VESSEL-${mmsi}`,
+          type: 'unknown',
+          flag: 'UNK', // AISStream doesn't provide flags reliably
+          position: { lat: data.MetaData.latitude, lng: data.MetaData.longitude },
+          speed: 0,
+          heading: 0,
+          destination: 'Unknown',
+          ais_active: true,
+          dark_ship: false,
+          last_update: Date.now() / 1000,
+          trail: []
+        };
+
+        if (data.MessageType === 'PositionReport' && data.Message.PositionReport) {
+          vessel.position = { 
+            lat: data.Message.PositionReport.Latitude,
+            lng: data.Message.PositionReport.Longitude
+          };
+          vessel.speed = data.Message.PositionReport.Sog;
+          vessel.heading = data.Message.PositionReport.Cog;
+          vessel.last_update = Date.now() / 1000;
+        } else if (data.MessageType === 'ShipStaticData' && data.Message.ShipStaticData) {
+          if (data.Message.ShipStaticData.Name) {
+            vessel.name = data.Message.ShipStaticData.Name.trim();
+          }
+          vessel.type = classifyShipType(data.Message.ShipStaticData.Type);
+          if (data.Message.ShipStaticData.Destination) {
+            vessel.destination = data.Message.ShipStaticData.Destination.trim();
+          }
+        }
+
+        vesselCache.set(mmsi, vessel);
+
+        // Keep cache size manageable to prevent WebGL crashing (max 5000 ships)
+        if (vesselCache.size > 5000) {
+          const firstKey = vesselCache.keys().next().value;
+          if (firstKey) vesselCache.delete(firstKey);
+        }
+      } catch (err) {
+        // Ignore parse errors dynamically
+      }
+    };
+
+    ws.onerror = () => {
+      console.warn('AISStream WebSocket error');
+    };
+
+    ws.onclose = () => {
+      console.log('AISStream WebSocket closed, reconnecting in 5s...');
+      setTimeout(initWebSocket, 5000);
+    };
   } catch (err) {
-    console.warn('Digitraffic API error:', err);
-    return [];
+    console.error('Failed to initialize AISStream WebSocket', err);
   }
 }
 
 export async function fetchMaritimeData(): Promise<Vessel[]> {
-  // Fetch real AIS data from Digitraffic (free)
-  const realAIS = await fetchDigitrafficAIS();
+  if (typeof window === 'undefined') return []; // Server side
+  
+  // Lazy init WebSocket on first fetch
+  if (!ws) {
+    initWebSocket();
+  }
 
-  return realAIS;
+  // Return whatever we have accumulated
+  return Array.from(vesselCache.values());
 }
