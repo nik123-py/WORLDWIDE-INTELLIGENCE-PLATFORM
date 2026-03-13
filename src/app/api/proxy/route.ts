@@ -19,6 +19,8 @@ const ALLOWED_HOSTS = [
   'ucdpapi.pcr.uu.se',
   'api.worldbank.org',
   'insecam.org',
+  'www.submarinecablemap.com',
+  'api.ioda.inetintel.cc.gatech.edu',
 ];
 
 export async function GET(request: NextRequest) {

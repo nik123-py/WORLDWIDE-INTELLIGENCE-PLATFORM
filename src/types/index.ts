@@ -198,3 +198,44 @@ export interface LiveCamera {
   status: 'online' | 'offline' | 'unknown';
   resolution?: string;
 }
+
+// --- Internet Outage ---
+export interface InternetOutage {
+  id: string;
+  country: string;
+  countryCode: string;
+  position: GeoPosition;
+  startDate: string;
+  endDate?: string;
+  scope: 'national' | 'regional' | 'network';
+  cause: string;
+  asn?: number;
+  asnName?: string;
+  active: boolean;
+}
+
+// --- Military Base ---
+export interface MilitaryBase {
+  id: string;
+  name: string;
+  country: string;
+  position: GeoPosition;
+  type: 'naval' | 'air_force' | 'army' | 'nuclear' | 'joint' | 'intelligence';
+  branch: string;
+  personnel?: number;
+  status: 'active' | 'reserve' | 'closed';
+}
+
+// --- Drone / UAV ---
+export interface DroneUAV {
+  id: string;
+  callsign: string;
+  type: string; // e.g. MQ-9, RQ-4
+  country: string;
+  position: GeoPosition;
+  altitude: number;
+  speed: number;
+  heading: number;
+  military: boolean;
+  last_update: number;
+}

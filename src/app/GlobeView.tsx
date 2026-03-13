@@ -2,8 +2,11 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import Globe, { GlobeMethods } from 'react-globe.gl';
 import {
   Aircraft, Vessel, Satellite, GlobalEvent, CyberThreat,
-  Infrastructure, LiveCamera, LayerConfig, FinancialFlow
+  Infrastructure, LiveCamera, LayerConfig, FinancialFlow,
+  InternetOutage, MilitaryBase, DroneUAV
 } from '@/types';
+import { CableFeature } from '@/services/submarineCableService';
+import { getBaseTypeColor } from '@/services/militaryBaseService';
 import { getCCTVCategoryColor } from '@/services/cctvService';
 import { getSeverityColor } from '@/services/alertService';
 import * as THREE from 'three';
@@ -16,7 +19,7 @@ interface GlobePoint {
   color: string;
   radius: number;
   type: string;
-  data: Aircraft | Vessel | Satellite | GlobalEvent | Infrastructure | LiveCamera;
+  data: Aircraft | Vessel | Satellite | GlobalEvent | Infrastructure | LiveCamera | MilitaryBase | DroneUAV | InternetOutage;
 }
 
 // Define the shape of our arc data for the globe
@@ -40,6 +43,10 @@ interface GlobeViewProps {
   infrastructure: Infrastructure[];
   financialFlows: FinancialFlow[];
   cameras: LiveCamera[];
+  submarineCables: CableFeature[];
+  militaryBases: MilitaryBase[];
+  internetOutages: InternetOutage[];
+  drones: DroneUAV[];
   onEntityClick: (entity: any, type: string) => void;
   globeRotation?: { lat: number; lng: number };
   globeZoom?: number;
@@ -47,7 +54,8 @@ interface GlobeViewProps {
 
 export default function GlobeView({
   layers, aircraft, vessels, satellites, events, cyberThreats,
-  infrastructure, financialFlows, cameras, onEntityClick,
+  infrastructure, financialFlows, cameras, submarineCables,
+  militaryBases, internetOutages, drones, onEntityClick,
   globeRotation, globeZoom
 }: GlobeViewProps) {
   const globeRef = useRef<GlobeMethods | undefined>(undefined);
@@ -193,8 +201,47 @@ export default function GlobeView({
       });
     }
 
+    // Military Bases Layer
+    if (layers.find(l => l.id === 'military')?.visible) {
+      militaryBases.forEach(base => {
+        points.push({
+          lat: base.position.lat, lng: base.position.lng,
+          alt: 0.005,
+          color: getBaseTypeColor(base.type),
+          radius: base.type === 'nuclear' ? 0.5 : 0.35,
+          type: 'military_base', data: base as any
+        });
+      });
+    }
+
+    // Internet Outages Layer
+    if (layers.find(l => l.id === 'outages')?.visible) {
+      internetOutages.forEach(outage => {
+        points.push({
+          lat: outage.position.lat, lng: outage.position.lng,
+          alt: 0.01,
+          color: outage.active ? '#ff1744' : '#ff9100',
+          radius: outage.scope === 'national' ? 0.6 : 0.4,
+          type: 'outage', data: outage as any
+        });
+      });
+    }
+
+    // Drones/UAV Layer
+    if (layers.find(l => l.id === 'drones')?.visible) {
+      drones.forEach(drone => {
+        points.push({
+          lat: drone.position.lat, lng: drone.position.lng,
+          alt: (drone.altitude || 10000) / 100000,
+          color: '#76ff03',
+          radius: 0.35,
+          type: 'drone', data: drone as any
+        });
+      });
+    }
+
     return points;
-  }, [layers, aircraft, vessels, satellites, events, infrastructure, cameras]);
+  }, [layers, aircraft, vessels, satellites, events, infrastructure, cameras, militaryBases, internetOutages, drones]);
 
   // Convert layer data to globe.gl arcs data format
   const arcsData = useMemo(() => {
@@ -226,8 +273,26 @@ export default function GlobeView({
       });
     }
 
+    // Submarine cables as arcs
+    if (layers.find(l => l.id === 'cables')?.visible) {
+      submarineCables.forEach(cable => {
+        // Each cable has multiple line segments — convert to arcs
+        cable.coordinates.forEach(line => {
+          for (let i = 0; i < line.length - 1; i += Math.max(1, Math.floor(line.length / 5))) {
+            const next = Math.min(i + Math.max(1, Math.floor(line.length / 5)), line.length - 1);
+            arcs.push({
+              startLat: line[i][1], startLng: line[i][0],
+              endLat: line[next][1], endLng: line[next][0],
+              color: cable.color || '#00bcd4',
+              type: 'cable', data: cable as any
+            });
+          }
+        });
+      });
+    }
+
     return arcs;
-  }, [layers, cyberThreats, financialFlows]);
+  }, [layers, cyberThreats, financialFlows, submarineCables]);
 
   // Rings data for events and dark ships
   const ringsData = useMemo(() => {
@@ -267,8 +332,23 @@ export default function GlobeView({
       });
     }
 
+    // Internet outage rings (pulsing red)
+    if (layers.find(l => l.id === 'outages')?.visible) {
+      internetOutages.forEach(o => {
+        if (o.active) {
+          rings.push({
+            lat: o.position.lat, lng: o.position.lng,
+            color: (t: number) => `rgba(255, 23, 68, ${1 - t})`,
+            maxR: o.scope === 'national' ? 5 : 3,
+            propagationSpeed: 2,
+            repeatPeriod: 1200
+          });
+        }
+      });
+    }
+
     return rings;
-  }, [layers, events, vessels]);
+  }, [layers, events, vessels, internetOutages]);
 
   // Helper for ring colors
   function customHexToRgb(hex: string) {
@@ -306,6 +386,9 @@ export default function GlobeView({
         if (p.type === 'camera') return (p.data as LiveCamera).name;
         if (p.type === 'infrastructure') return (p.data as Infrastructure).name;
         if (p.type === 'satellite') return (p.data as Satellite).name;
+        if (p.type === 'military_base') return `⚔️ ${(p.data as MilitaryBase).name} (${(p.data as MilitaryBase).country})`;
+        if (p.type === 'outage') return `🔴 ${(p.data as InternetOutage).country} — ${(p.data as InternetOutage).cause}`;
+        if (p.type === 'drone') return `🛩️ ${(p.data as DroneUAV).callsign} (${(p.data as DroneUAV).type})`;
         return p.type;
       }}
       

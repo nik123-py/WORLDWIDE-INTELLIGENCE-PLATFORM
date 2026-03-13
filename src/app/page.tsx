@@ -11,7 +11,7 @@ import {
   Skull, Bug, Bot, ScanLine, Video, Camera,
 } from 'lucide-react';
 
-import { Aircraft, Vessel, Satellite as SatelliteType, GlobalEvent, CyberThreat, Infrastructure, Alert, LayerConfig, WarPrediction, FinancialFlow, LiveCamera } from '@/types';
+import { Aircraft, Vessel, Satellite as SatelliteType, GlobalEvent, CyberThreat, Infrastructure, Alert, LayerConfig, WarPrediction, FinancialFlow, LiveCamera, InternetOutage, MilitaryBase, DroneUAV } from '@/types';
 import { fetchAircraftData } from '@/services/aircraftService';
 import { fetchMaritimeData } from '@/services/maritimeService';
 import { fetchSatelliteData } from '@/services/satelliteService';
@@ -22,6 +22,10 @@ import { generateLiveAlerts, getSeverityColor } from '@/services/alertService';
 import { fetchWarPredictions, fetchFinancialFlows, getWarRiskColor } from '@/services/intelligenceService';
 import { parseQuery, EXAMPLE_QUERIES } from '@/services/queryEngine';
 import { fetchCCTVCameras, getCCTVCategoryColor, getCCTVCategoryIcon } from '@/services/cctvService';
+import { fetchSubmarineCables, CableFeature } from '@/services/submarineCableService';
+import { fetchMilitaryBases } from '@/services/militaryBaseService';
+import { fetchInternetOutages } from '@/services/internetOutageService';
+import { fetchDroneData } from '@/services/droneService';
 
 // ─── Dynamic Globe Import ───
 import dynamic from 'next/dynamic';
@@ -38,6 +42,10 @@ export default function IntelligencePlatform() {
     { id: 'infrastructure', name: 'Infrastructure', icon: 'building', color: '#10b981', visible: false, count: 0, category: 'infrastructure' },
     { id: 'financial', name: 'Financial Flows', icon: 'trending', color: '#ec4899', visible: false, count: 0, category: 'intelligence' },
     { id: 'cctv', name: 'Live CCTV', icon: 'camera', color: '#e040fb', visible: true, count: 0, category: 'infrastructure' },
+    { id: 'cables', name: 'Submarine Cables', icon: 'cable', color: '#00bcd4', visible: false, count: 0, category: 'infrastructure' },
+    { id: 'military', name: 'Military Bases', icon: 'target', color: '#ff5722', visible: false, count: 0, category: 'intelligence' },
+    { id: 'outages', name: 'Internet Outages', icon: 'wifi', color: '#ff1744', visible: false, count: 0, category: 'events' },
+    { id: 'drones', name: 'Drones/UAVs', icon: 'radar', color: '#76ff03', visible: false, count: 0, category: 'tracking' },
   ]);
 
   const [aircraft, setAircraft] = useState<Aircraft[]>([]);
@@ -51,6 +59,10 @@ export default function IntelligencePlatform() {
   const [financialFlows, setFinancialFlows] = useState<FinancialFlow[]>([]);
   const [cameras, setCameras] = useState<LiveCamera[]>([]);
   const [selectedCamera, setSelectedCamera] = useState<LiveCamera | null>(null);
+  const [submarineCables, setSubmarineCables] = useState<CableFeature[]>([]);
+  const [militaryBases, setMilitaryBases] = useState<MilitaryBase[]>([]);
+  const [internetOutages, setInternetOutages] = useState<InternetOutage[]>([]);
+  const [drones, setDrones] = useState<DroneUAV[]>([]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEntity, setSelectedEntity] = useState<{ type: string; data: any } | null>(null);
@@ -76,7 +88,7 @@ export default function IntelligencePlatform() {
     async function loadAllData() {
       setLoading(true);
       try {
-        const [ac, vsl, sat, evt, cyb, infra, wp, ff] = await Promise.all([
+        const [ac, vsl, sat, evt, cyb, infra, wp, ff, cables, outages, drn] = await Promise.all([
           fetchAircraftData(),
           fetchMaritimeData(),
           fetchSatelliteData(),
@@ -85,7 +97,13 @@ export default function IntelligencePlatform() {
           Promise.resolve(fetchInfrastructureData()),
           fetchWarPredictions(),
           fetchFinancialFlows(),
+          fetchSubmarineCables(),
+          fetchInternetOutages(),
+          fetchDroneData(),
         ]);
+
+        // Sync data from curated datasets
+        const bases = fetchMilitaryBases();
 
         setAircraft(ac);
         setVessels(vsl);
@@ -96,6 +114,10 @@ export default function IntelligencePlatform() {
         setAlerts(generateLiveAlerts(evt, cyb, vsl));
         setWarPredictions(wp);
         setFinancialFlows(ff);
+        setSubmarineCables(cables);
+        setMilitaryBases(bases);
+        setInternetOutages(outages);
+        setDrones(drn);
 
         // Load CCTV cameras (synchronous, curated dataset)
         const cams = fetchCCTVCameras();
@@ -111,6 +133,10 @@ export default function IntelligencePlatform() {
             case 'infrastructure': return { ...l, count: infra.length };
             case 'financial': return { ...l, count: ff.length };
             case 'cctv': return { ...l, count: cams.length };
+            case 'cables': return { ...l, count: cables.length };
+            case 'military': return { ...l, count: bases.length };
+            case 'outages': return { ...l, count: outages.length };
+            case 'drones': return { ...l, count: drn.length };
             default: return l;
           }
         }));
@@ -330,6 +356,10 @@ export default function IntelligencePlatform() {
               infrastructure={infrastructure}
               financialFlows={financialFlows}
               cameras={cameras}
+              submarineCables={submarineCables}
+              militaryBases={militaryBases}
+              internetOutages={internetOutages}
+              drones={drones}
               onEntityClick={handleEntityClick}
               globeRotation={globeRotation}
               globeZoom={globeZoom}
