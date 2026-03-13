@@ -36,8 +36,8 @@ export async function fetchAircraftData(): Promise<Aircraft[]> {
     const data = await response.json();
     if (!data.states) return generateSimulatedAircraft();
 
-    // Take a subset for performance
-    const states = data.states.slice(0, 500);
+    // Process all states (we let React and Globe.gl handle the volume natively now)
+    const states = data.states;
 
     return states
       .filter((s: unknown[]) => s[5] !== null && s[6] !== null)
