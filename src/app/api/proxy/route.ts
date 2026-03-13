@@ -35,12 +35,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Host not allowed' }, { status: 403 });
     }
 
+    const headers: Record<string, string> = {
+      'Accept': 'text/html,application/json,*/*;q=0.8',
+      'User-Agent': request.headers.get('user-agent') || 'AEGIS-Intelligence-Platform/1.0',
+    };
+
+    if (parsedUrl.hostname.includes('insecam.org')) {
+      headers['Referer'] = 'http://www.insecam.org/';
+    }
+
     const response = await fetch(targetUrl, {
-      headers: {
-        'Accept': 'text/html,application/json,*/*;q=0.8',
-        'User-Agent': request.headers.get('user-agent') || 'AEGIS-Intelligence-Platform/1.0',
-        'Referer': 'http://www.insecam.org/', // Required by some streams
-      },
+      headers,
       signal: AbortSignal.timeout(15000),
       redirect: 'follow', // Follow redirects
     });
@@ -103,15 +108,22 @@ export async function POST(request: NextRequest) {
     const body = await request.text();
     const contentType = request.headers.get('content-type') || 'application/json';
 
+    const headers: Record<string, string> = {
+      'Content-Type': contentType,
+      'Accept': 'application/json',
+      'User-Agent': request.headers.get('user-agent') || 'AEGIS-Intelligence-Platform/1.0',
+    };
+
+    if (parsedUrl.hostname.includes('insecam.org')) {
+      headers['Referer'] = 'http://www.insecam.org/';
+    }
+
     const response = await fetch(targetUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': contentType,
-        'Accept': 'application/json',
-        'User-Agent': 'AEGIS-Intelligence-Platform/1.0',
-      },
+      headers,
       body,
       signal: AbortSignal.timeout(15000),
+      redirect: 'follow',
     });
 
     const resContentType = response.headers.get('content-type') || '';

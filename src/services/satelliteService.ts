@@ -97,39 +97,8 @@ export async function fetchSatelliteData(): Promise<Satellite[]> {
 
     return satellites;
   } catch {
-    console.warn('Celestrak unavailable, using simulated satellites');
-    return generateSimulatedSatellites();
+    console.warn('Celestrak unavailable, returning empty array');
+    return [];
   }
 }
 
-function generateSimulatedSatellites(): Satellite[] {
-  const sats: Satellite[] = [];
-  const names = [
-    'ISS (ZARYA)', 'STARLINK-1234', 'STARLINK-5678', 'GPS BIIR-2',
-    'IRIDIUM 180', 'COSMOS 2558', 'NOAA 20', 'GOES 16',
-    'SENTINEL-2A', 'USA 326', 'YAOGAN-35A', 'TIANGONG',
-    'HUBBLE', 'GLONASS-M 58', 'BEIDOU-3 M17', 'GALILEO 24',
-    'NROL-82', 'HIMAWARI-9', 'INTELSAT 40E', 'ONEWEB-0045',
-  ];
-
-  names.forEach((name, i) => {
-    const classification = classifySatellite(name);
-    const inclination = 20 + Math.random() * 80;
-    const meanAnomaly = Math.random() * 360;
-    const pos = estimatePosition(inclination, Math.random() * 360, meanAnomaly, 12 + Math.random() * 4);
-
-    sats.push({
-      norad_id: 25544 + i,
-      name,
-      type: classification.type,
-      country: classification.country,
-      position: { lat: pos.lat, lng: pos.lng, alt: (300 + Math.random() * 35000) * 1000 },
-      velocity: 7000 + Math.random() * 1000,
-      orbit_type: i < 15 ? 'LEO' : 'GEO',
-      tle_line1: '',
-      tle_line2: '',
-    });
-  });
-
-  return sats;
-}
