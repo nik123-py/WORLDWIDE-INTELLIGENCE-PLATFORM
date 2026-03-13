@@ -36,32 +36,22 @@ function categorizeAircraft(callsign: string, category_num: number): Aircraft['c
 
 export async function fetchAircraftData(): Promise<Aircraft[]> {
   try {
-    // Fetch multiple regions in parallel to avoid single massive 15s timeout
-    const responses = await Promise.allSettled(
-      OPENSKY_REGIONS.map(url => proxyFetch(url))
-    );
+    // Prevent 429 rate limit errors by picking ONE random high-traffic region per fetch
+    // OpenSky restricts unauthenticated users heavily if hitting concurrent requests
+    const randomRegion = OPENSKY_REGIONS[Math.floor(Math.random() * OPENSKY_REGIONS.length)];
+    const res = await proxyFetch(randomRegion);
 
-    const allStates: unknown[][] = [];
-
-    for (const res of responses) {
-      if (res.status === 'fulfilled' && res.value.ok) {
-        try {
-          const data = await res.value.json();
-          if (data && data.states) {
-            allStates.push(...data.states);
-          }
-        } catch {
-          // ignore parsing errors for individual regions
-        }
-      }
-    }
-
-    if (allStates.length === 0) {
-      console.warn('OpenSky API unavailable across regions, returning empty array');
+    if (!res.ok) {
+      if (res.status === 429) console.warn('OpenSky Rate Limited (429)');
       return [];
     }
 
-    // Process all combined states
+    const data = await res.json();
+    if (!data || !data.states) {
+      return [];
+    }
+
+    const allStates = data.states;
     return allStates
       .filter((s: unknown[]) => s[5] !== null && s[6] !== null)
       .map((s: unknown[]): Aircraft => {

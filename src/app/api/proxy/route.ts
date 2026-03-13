@@ -74,7 +74,18 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const data = contentType.includes('json') ? await response.json() : await response.text();
+    // Handle clean JSON passthrough vs Text
+    let data;
+    if (contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      const text = await response.text();
+      try {
+        data = JSON.parse(text); // Try parsing anyway if text
+      } catch {
+        data = { response: text }; // Wrap raw text
+      }
+    }
 
     return NextResponse.json(data, {
       status: response.status,

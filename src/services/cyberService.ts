@@ -164,29 +164,7 @@ export async function fetchCyberData(): Promise<CyberThreat[]> {
   ]);
 
   const allThreats = results.flat();
-  if (allThreats.length === 0) {
-    // Minimal fallback: known APT groups
-    return [
-      makeThreat('APT28 (Fancy Bear)', 'apt', 'RU', 'US'),
-      makeThreat('APT41 (Winnti)', 'apt', 'CN', 'US'),
-      makeThreat('Lazarus Group', 'ransomware', 'KR', 'JP'),
-      makeThreat('Sandworm', 'exploit', 'RU', 'DE'),
-    ];
-  }
   return allThreats.sort((a, b) => b.timestamp - a.timestamp);
-}
-
-function makeThreat(name: string, type: CyberThreat['type'], srcCountry: string, tgtCountry: string): CyberThreat {
-  const src = MAJOR_CITIES.find(c => c.country === srcCountry) || MAJOR_CITIES[0];
-  const tgt = MAJOR_CITIES.find(c => c.country === tgtCountry) || MAJOR_CITIES[1];
-  return {
-    id: `known-${name}`, type, source_ip: '0.0.0.0',
-    source_position: { lat: src.lat, lng: src.lng },
-    target_ip: '0.0.0.0',
-    target_position: { lat: tgt.lat, lng: tgt.lng },
-    severity: 5, attack_name: name,
-    timestamp: Date.now() - Math.random() * 86400000, active: true,
-  };
 }
 
 function getCountryCenter(code: string): { lat: number; lng: number } {

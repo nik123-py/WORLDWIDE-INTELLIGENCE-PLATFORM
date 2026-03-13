@@ -18,7 +18,7 @@ import { fetchSatelliteData } from '@/services/satelliteService';
 import { fetchEventsData } from '@/services/eventsService';
 import { fetchCyberData } from '@/services/cyberService';
 import { fetchInfrastructureData } from '@/services/infrastructureService';
-import { generateAlerts, getSeverityColor } from '@/services/alertService';
+import { generateLiveAlerts, getSeverityColor } from '@/services/alertService';
 import { fetchWarPredictions, fetchFinancialFlows, getWarRiskColor } from '@/services/intelligenceService';
 import { parseQuery, EXAMPLE_QUERIES } from '@/services/queryEngine';
 import { fetchCCTVCameras, getCCTVCategoryColor, getCCTVCategoryIcon } from '@/services/cctvService';
@@ -93,7 +93,7 @@ export default function IntelligencePlatform() {
         setEvents(evt);
         setCyberThreats(cyb);
         setInfrastructure(infra);
-        setAlerts(generateAlerts());
+        setAlerts(generateLiveAlerts(evt, cyb, vsl));
         setWarPredictions(wp);
         setFinancialFlows(ff);
 

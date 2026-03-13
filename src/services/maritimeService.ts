@@ -52,7 +52,7 @@ function initWebSocket() {
     ws.onopen = () => {
       console.log('AISStream WebSocket connected');
       ws?.send(JSON.stringify({
-        Apikey: API_KEY,
+        APIKey: API_KEY, // Fix: MUST be exactly APIKey
         BoundingBoxes: [[[-90, -180], [90, 180]]], // Global
         FilterMessageTypes: ['PositionReport', 'ShipStaticData']
       }));
@@ -128,6 +128,14 @@ export async function fetchMaritimeData(): Promise<Vessel[]> {
   // Lazy init WebSocket on first fetch
   if (!ws) {
     initWebSocket();
+  }
+
+  // If cache is empty, wait up to 3 seconds for the first WebSocket payloads to stream in
+  if (vesselCache.size === 0) {
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 100));
+      if (vesselCache.size > 10) break; // Break early as soon as we have a handful of ships
+    }
   }
 
   // Return whatever we have accumulated
