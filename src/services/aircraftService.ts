@@ -2,7 +2,17 @@
 import { Aircraft, GeoPosition } from '@/types';
 import { proxyFetch } from '@/utils/proxyFetch';
 
-const OPENSKY_API = 'https://opensky-network.org/api/states/all';
+// OpenSky Network API - querying by region to prevent massive 30MB payload timeouts
+const OPENSKY_REGIONS = [
+  // North America
+  'https://opensky-network.org/api/states/all?lamin=20&lomin=-130&lamax=50&lomax=-60',
+  // Europe
+  'https://opensky-network.org/api/states/all?lamin=35&lomin=-10&lamax=65&lomax=40',
+  // East Asia
+  'https://opensky-network.org/api/states/all?lamin=10&lomin=100&lamax=50&lomax=150',
+  // Middle East
+  'https://opensky-network.org/api/states/all?lamin=10&lomin=35&lamax=40&lomax=65'
+];
 
 // Known billionaire / notable aircraft registrations
 const TRACKED_AIRCRAFT: Record<string, string> = {
@@ -26,20 +36,33 @@ function categorizeAircraft(callsign: string, category_num: number): Aircraft['c
 
 export async function fetchAircraftData(): Promise<Aircraft[]> {
   try {
-    const response = await proxyFetch(OPENSKY_API);
+    // Fetch multiple regions in parallel to avoid single massive 15s timeout
+    const responses = await Promise.allSettled(
+      OPENSKY_REGIONS.map(url => proxyFetch(url))
+    );
 
-    if (!response.ok) {
-      console.warn('OpenSky API unavailable, returning empty array');
+    const allStates: unknown[][] = [];
+
+    for (const res of responses) {
+      if (res.status === 'fulfilled' && res.value.ok) {
+        try {
+          const data = await res.value.json();
+          if (data && data.states) {
+            allStates.push(...data.states);
+          }
+        } catch {
+          // ignore parsing errors for individual regions
+        }
+      }
+    }
+
+    if (allStates.length === 0) {
+      console.warn('OpenSky API unavailable across regions, returning empty array');
       return [];
     }
 
-    const data = await response.json();
-    if (!data.states) return [];
-
-    // Process all states (we let React and Globe.gl handle the volume natively now)
-    const states = data.states;
-
-    return states
+    // Process all combined states
+    return allStates
       .filter((s: unknown[]) => s[5] !== null && s[6] !== null)
       .map((s: unknown[]): Aircraft => {
         const callsign = ((s[1] as string) || '').trim();

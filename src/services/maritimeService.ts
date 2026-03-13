@@ -1,14 +1,14 @@
 // Maritime vessel tracking — REAL-TIME free AIS data
 // Uses Digitraffic Marine API (Finnish Transport Infrastructure Agency) — completely free, no registration
-// Endpoint: https://meri.digitraffic.fi/api/vessel-location/v1/locations
-// Also provides vessel metadata: https://meri.digitraffic.fi/api/vessel-location/v1/vessels
+// Endpoint: https://meri.digitraffic.fi/api/ais/v1/locations
+// Also provides vessel metadata: https://meri.digitraffic.fi/api/ais/v1/vessels
 
 import { Vessel, GeoPosition } from '@/types';
 import { SHIPPING_LANES, MILITARY_HOTSPOTS } from '@/utils/geo';
 import { proxyFetch } from '@/utils/proxyFetch';
 
 // ─── Digitraffic Marine API (Free, no key, real AIS data) ───
-const DIGITRAFFIC_LOCATIONS = 'https://meri.digitraffic.fi/api/vessel-location/v1/locations';
+const DIGITRAFFIC_LOCATIONS = 'https://meri.digitraffic.fi/api/ais/v1/locations';
 
 interface DigitrafficVessel {
   mmsi: number;
