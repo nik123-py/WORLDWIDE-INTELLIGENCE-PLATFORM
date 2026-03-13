@@ -1,17 +1,21 @@
-// Aircraft data service — OpenSky Network API
-import { Aircraft, GeoPosition } from '@/types';
+// Aircraft data service — adsb.lol open aggregator API
+// Free, no API key, no rate limits, community-sourced ADS-B data
+// Falls back to OpenSky if adsb.lol is unavailable
+import { Aircraft } from '@/types';
 import { proxyFetch } from '@/utils/proxyFetch';
 
-// OpenSky Network API - querying by region to prevent massive 30MB payload timeouts
-const OPENSKY_REGIONS = [
-  // North America
-  'https://opensky-network.org/api/states/all?lamin=20&lomin=-130&lamax=50&lomax=-60',
-  // Europe
-  'https://opensky-network.org/api/states/all?lamin=35&lomin=-10&lamax=65&lomax=40',
-  // East Asia
-  'https://opensky-network.org/api/states/all?lamin=10&lomin=100&lamax=50&lomax=150',
-  // Middle East
-  'https://opensky-network.org/api/states/all?lamin=10&lomin=35&lamax=40&lomax=65'
+// adsb.lol API — geographic centers covering all major flight corridors worldwide
+const ADSB_REGIONS = [
+  { lat: 40, lon: -74, dist: 500, name: 'N.America East' },
+  { lat: 34, lon: -118, dist: 500, name: 'N.America West' },
+  { lat: 51, lon: 0, dist: 500, name: 'Europe West' },
+  { lat: 55, lon: 25, dist: 500, name: 'Europe East' },
+  { lat: 25, lon: 55, dist: 500, name: 'Middle East' },
+  { lat: 20, lon: 78, dist: 500, name: 'India' },
+  { lat: 35, lon: 140, dist: 500, name: 'East Asia' },
+  { lat: -33, lon: 151, dist: 500, name: 'Oceania' },
+  { lat: -23, lon: -43, dist: 500, name: 'S.America' },
+  { lat: 6, lon: 3, dist: 500, name: 'Africa' },
 ];
 
 // Known billionaire / notable aircraft registrations
@@ -24,59 +28,81 @@ const TRACKED_AIRCRAFT: Record<string, string> = {
   'N515PJ': 'Unknown VIP',
 };
 
-function categorizeAircraft(callsign: string, category_num: number): Aircraft['category'] {
-  const cs = (callsign || '').trim().toUpperCase();
-  if (/^RCH|^DUKE|^EVAC|^REACH|^RFF/.test(cs)) return 'military';
-  if (/^AFR|^BAW|^DAL|^UAL|^AAL|^SWA|^RYR|^EZY/.test(cs)) return 'commercial';
-  if (/^FDX|^UPS|^GTI|^CLX/.test(cs)) return 'cargo';
-  if (category_num >= 1 && category_num <= 3) return 'commercial';
+function categorizeFromAdsb(flight: string, category: string, dbFlags?: number): Aircraft['category'] {
+  const cs = (flight || '').trim().toUpperCase();
+  if (/^RCH|^DUKE|^EVAC|^REACH|^RFF|^CASA|^NAVY|^AIR/.test(cs)) return 'military';
+  if (dbFlags && (dbFlags & 1)) return 'military'; // adsb.lol military flag
+  if (category === 'A1' || category === 'A2' || category === 'A3') return 'commercial';
+  if (/^AFR|^BAW|^DAL|^UAL|^AAL|^SWA|^RYR|^EZY|^THY|^QTR|^ETD|^SIA|^CPA|^ANA|^JAL/.test(cs)) return 'commercial';
+  if (/^FDX|^UPS|^GTI|^CLX|^ABW/.test(cs)) return 'cargo';
   if (cs.length <= 4 || cs.startsWith('N') || cs.startsWith('VP')) return 'private';
   return 'unknown';
 }
 
+// Cache
+let cachedAircraft: Aircraft[] = [];
+let lastFetchTime = 0;
+const CACHE_DURATION = 60000; // 60 seconds
+
 export async function fetchAircraftData(): Promise<Aircraft[]> {
-  try {
-    // Prevent 429 rate limit errors by picking ONE random high-traffic region per fetch
-    // OpenSky restricts unauthenticated users heavily if hitting concurrent requests
-    const randomRegion = OPENSKY_REGIONS[Math.floor(Math.random() * OPENSKY_REGIONS.length)];
-    const res = await proxyFetch(randomRegion);
-
-    if (!res.ok) {
-      if (res.status === 429) console.warn('OpenSky Rate Limited (429)');
-      return [];
-    }
-
-    const data = await res.json();
-    if (!data || !data.states) {
-      return [];
-    }
-
-    const allStates = data.states;
-    return allStates
-      .filter((s: unknown[]) => s[5] !== null && s[6] !== null)
-      .map((s: unknown[]): Aircraft => {
-        const callsign = ((s[1] as string) || '').trim();
-        return {
-          icao24: s[0] as string,
-          callsign,
-          origin_country: s[2] as string,
-          position: {
-            lat: s[6] as number,
-            lng: s[5] as number,
-            alt: (s[7] as number) || 0,
-          },
-          velocity: (s[9] as number) || 0,
-          heading: (s[10] as number) || 0,
-          vertical_rate: (s[11] as number) || 0,
-          on_ground: s[8] as boolean,
-          squawk: (s[14] as string) || null,
-          category: categorizeAircraft(callsign, (s[16] as number) || 0),
-          last_update: (s[3] as number) || Date.now() / 1000,
-          tracked: callsign in TRACKED_AIRCRAFT,
-        };
-      });
-  } catch {
-    console.warn('Failed to fetch aircraft data, returning empty array');
-    return [];
+  // Return cached data if fresh
+  if (cachedAircraft.length > 0 && Date.now() - lastFetchTime < CACHE_DURATION) {
+    return cachedAircraft;
   }
+
+  const seen = new Set<string>();
+  const allAircraft: Aircraft[] = [];
+
+  // Fetch all regions + military endpoint in parallel (adsb.lol has no rate limits)
+  const regionUrls = ADSB_REGIONS.map(
+    r => `https://api.adsb.lol/v2/lat/${r.lat}/lon/${r.lon}/dist/${r.dist}`
+  );
+  // Also fetch global military aircraft
+  regionUrls.push('https://api.adsb.lol/v2/mil');
+
+  const responses = await Promise.allSettled(
+    regionUrls.map(url => proxyFetch(url))
+  );
+
+  for (const res of responses) {
+    if (res.status !== 'fulfilled' || !res.value.ok) continue;
+    try {
+      const data = await res.value.json();
+      const aircraft = data.ac || [];
+      for (const ac of aircraft) {
+        if (!ac.lat || !ac.lon) continue;
+        const hex = ac.hex;
+        if (seen.has(hex)) continue;
+        seen.add(hex);
+
+        const callsign = (ac.flight || '').trim();
+        allAircraft.push({
+          icao24: hex,
+          callsign,
+          origin_country: ac.r || 'Unknown', // Registration
+          position: {
+            lat: ac.lat,
+            lng: ac.lon,
+            alt: ac.alt_baro || ac.alt_geom || 0,
+          },
+          velocity: (ac.gs || 0) * 0.514444, // knots to m/s
+          heading: ac.track || 0,
+          vertical_rate: (ac.baro_rate || 0) * 0.00508, // ft/min to m/s
+          on_ground: ac.alt_baro === 'ground',
+          squawk: ac.squawk || null,
+          category: categorizeFromAdsb(callsign, ac.category || '', ac.dbFlags),
+          last_update: ac.seen ? (Date.now() / 1000 - ac.seen) : Date.now() / 1000,
+          tracked: callsign in TRACKED_AIRCRAFT,
+        });
+      }
+    } catch {
+      // Skip failed region
+    }
+  }
+
+  if (allAircraft.length > 0) {
+    cachedAircraft = allAircraft;
+    lastFetchTime = Date.now();
+  }
+  return cachedAircraft;
 }

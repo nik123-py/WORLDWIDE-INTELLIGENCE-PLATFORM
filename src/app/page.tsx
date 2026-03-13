@@ -120,23 +120,8 @@ export default function IntelligencePlatform() {
       setLoading(false);
     }
     loadAllData();
-    const refresh = setInterval(loadAllData, 120000); // refresh all static datasets every 2 min
-    
-    // Fast sync for WebSockets (vessels) so they appear instantly as the stream warms up
-    const fastSync = setInterval(async () => {
-      try {
-        const vsl = await fetchMaritimeData();
-        if (vsl.length > 0) {
-          setVessels(vsl);
-          setLayers(prev => prev.map(l => l.id === 'maritime' ? { ...l, count: vsl.length } : l));
-        }
-      } catch (e) {}
-    }, 2000);
-
-    return () => {
-      clearInterval(refresh);
-      clearInterval(fastSync);
-    };
+    const refresh = setInterval(loadAllData, 120000); // refresh every 2 min
+    return () => clearInterval(refresh);
   }, []);
 
   // ─── Toggle Layer ───

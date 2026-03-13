@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 // Allowed external API hosts (whitelist to prevent open proxy abuse)
 const ALLOWED_HOSTS = [
   'opensky-network.org',
+  'api.adsb.lol',
   'api.gdeltproject.org',
   'earthquake.usgs.gov',
   'eonet.gsfc.nasa.gov',
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
 
     const response = await fetch(targetUrl, {
       headers,
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(30000),
       redirect: 'follow', // Follow redirects
     });
 
